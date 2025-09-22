@@ -2,108 +2,128 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Gorsel yukleme
-img_path = r'your_image'
-img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
 
-if img is None:
-    print("Gorsel yuklenemedi! ")
-    exit()
-
-#gorsel boyutlarý
-(h, w) = img.shape
-center = (w // 2, h // 2)
-
-# gorseli dondur 30 derece
-M = cv2.getRotationMatrix2D(center, 30, 1.0)
-img_rotated = cv2.warpAffine(img, M, (w, h))
+def load_image(path, grayscale=True):
+    flag = cv2.IMREAD_GRAYSCALE if grayscale else cv2.IMREAD_COLOR
+    img = cv2.imread(path, flag)
+    if img is None:
+        raise FileNotFoundError(f"Gorsel yuklenemedi: {path}")
+    return img
 
 
-img_resized = cv2.resize(img, (w // 2, h // 2))
+def rotate_image(img, angle, scale=1.0):
+    h, w = img.shape[:2]
+    center = (w // 2, h // 2)
+    M = cv2.getRotationMatrix2D(center, angle, scale)
+    return cv2.warpAffine(img, M, (w, h))
 
 
-# Harris Corner Detection
-def harris_corners(image):
-    dst = cv2.cornerHarris(np.float32(image), blockSize=2, ksize=3, k=0.04)
+def resize_image(img, w=None, h=None):
+    h, w = img.shape[:2]
+    width = w
+    height = h
+    return cv2.resize(img, (width, height))
+
+
+def harris_corners(img, blockSize=2, ksize=3, k=0.04, threshold=0.01):
+    dst = cv2.cornerHarris(np.float32(img), blockSize, ksize, k)
     dst = cv2.dilate(dst, None)
-    img_corners = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
-    img_corners[dst > 0.01 * dst.max()] = [0, 0, 255]
+    img_corners = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    img_corners[dst > threshold * dst.max()] = [0, 0, 255]
     return img_corners
 
-img_rotated_harris = harris_corners(img_rotated)
-img_resized_harris = harris_corners(cv2.resize(img_resized, (w, h)))
+
+def compute_features(img, method='SIFT'):
+    if method.upper() == 'SIFT':
+        detector = cv2.SIFT_create()
+    elif method.upper() == 'ORB':
+        detector = cv2.ORB_create()
+    else:
+        raise ValueError("Desteklenen metodlar: SIFT, ORB")
+    kp, des = detector.detectAndCompute(img, None)
+    return kp, des
 
 
-# Ozellik tespiti (SIFT / ORB)
-# SIFT
-sift = cv2.SIFT_create()
-kp1, des1 = sift.detectAndCompute(img_rotated, None)
-kp2, des2 = sift.detectAndCompute(cv2.resize(img_resized, (w, h)), None)
-
-# ORB
-orb = cv2.ORB_create()
-kp1_orb, des1_orb = orb.detectAndCompute(img_rotated, None)
-kp2_orb, des2_orb = orb.detectAndCompute(cv2.resize(img_resized, (w, h)), None)
+def bf_match(des1, des2, method='SIFT', top_n=20):
+    if method.upper() == 'SIFT':
+        bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
+    elif method.upper() == 'ORB':
+        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    matches = bf.match(des1, des2)
+    matches = sorted(matches, key=lambda x: x.distance)
+    return matches[:top_n]
 
 
-# BFMatcher
-bf_sift = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
-matches_sift = bf_sift.match(des1, des2)
-matches_sift = sorted(matches_sift, key=lambda x: x.distance)
-img_matches_sift = cv2.drawMatches(img_rotated, kp1, cv2.resize(img_resized, (w, h)), kp2, matches_sift[:20], None, flags=2)
-
-bf_orb = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-matches_orb = bf_orb.match(des1_orb, des2_orb)
-matches_orb = sorted(matches_orb, key=lambda x: x.distance)
-img_matches_orb = cv2.drawMatches(img_rotated, kp1_orb, cv2.resize(img_resized, (w, h)), kp2_orb, matches_orb[:20], None, flags=2)
-
-
-# FLANN Matcher
-# SIFT
-FLANN_INDEX_KDTREE = 1
-index_params_sift = dict(algorithm = FLANN_INDEX_KDTREE, trees = 5)
-search_params = dict(checks = 50)
-flann_sift = cv2.FlannBasedMatcher(index_params_sift, search_params)
-matches_flann_sift = flann_sift.knnMatch(des1, des2, k=2)
-
-# ratio test
-good_matches_sift = []
-for m,n in matches_flann_sift:
-    if m.distance < 0.7 * n.distance:
-        good_matches_sift.append(m)
-img_flann_sift = cv2.drawMatches(img_rotated, kp1, cv2.resize(img_resized, (w, h)), kp2, good_matches_sift[:20], None, flags=2)
-
-# ORB (binary descriptors için LSH)
-FLANN_INDEX_LSH = 6
-index_params_orb = dict(algorithm = FLANN_INDEX_LSH,
-                        table_number = 6,
-                        key_size = 12,
-                        multi_probe_level = 1)
-flann_orb = cv2.FlannBasedMatcher(index_params_orb, search_params)
-matches_flann_orb = flann_orb.knnMatch(des1_orb, des2_orb, k=2)
-
-# ratio test
-good_matches_orb = []
-for m,n in matches_flann_orb:
-    if m.distance < 0.7 * n.distance:
-        good_matches_orb.append(m)
-img_flann_orb = cv2.drawMatches(img_rotated, kp1_orb, cv2.resize(img_resized, (w, h)), kp2_orb, good_matches_orb[:20], None, flags=2)
+def flann_match(des1, des2, method='SIFT', ratio=0.7, top_n=20):
+    if method.upper() == 'SIFT':
+        index_params = dict(algorithm=1, trees=5)
+    elif method.upper() == 'ORB':
+        index_params = dict(algorithm=6, table_number=6, key_size=12, multi_probe_level=1)
+    else:
+        raise ValueError("Desteklenen metodlar: SIFT, ORB")
+    search_params = dict(checks=50)
+    flann = cv2.FlannBasedMatcher(index_params, search_params)
+    matches = flann.knnMatch(des1, des2, k=2)
+    good = [m for m,n in matches if m.distance < ratio*n.distance]
+    return good[:top_n]
 
 
-# Sonuclari goster
-plt.figure(figsize=(18,12))
 
-plt.subplot(3,3,1), plt.imshow(img_rotated, cmap='gray'), plt.title('Rotated Image')
-plt.subplot(3,3,2), plt.imshow(img_resized, cmap='gray'), plt.title('Resized Image')
+def draw_matches(img1, kp1, img2, kp2, matches):
+    return cv2.drawMatches(img1, kp1, img2, kp2, matches, None, flags=2)
 
-plt.subplot(3,3,3), plt.imshow(img_rotated_harris), plt.title('Harris Corners Rotated')
-plt.subplot(3,3,4), plt.imshow(img_resized_harris), plt.title('Harris Corners Resized')
 
-plt.subplot(3,3,5), plt.imshow(img_matches_sift), plt.title('SIFT BFMatcher')
-plt.subplot(3,3,6), plt.imshow(img_matches_orb), plt.title('ORB BFMatcher')
+def plot_images(images, titles, figsize=(18,12), cmap='gray'):
+    import math
+    n = len(images)
+    rows = math.ceil(n/3)
+    plt.figure(figsize=figsize)
+    for i, (img, title) in enumerate(zip(images, titles), 1):
+        plt.subplot(rows, 3, i)
+        plt.imshow(img, cmap=cmap)
+        plt.title(title)
+        plt.axis('off')
+    plt.tight_layout()
+    plt.show()
 
-plt.subplot(3,3,7), plt.imshow(img_flann_sift), plt.title('SIFT FLANN')
-plt.subplot(3,3,8), plt.imshow(img_flann_orb), plt.title('ORB FLANN')
 
-plt.tight_layout()
-plt.show()
+def main():
+    img_path = r'C:\Users\Zeki\Desktop\resim\monaLisa.webp'
+    
+    img = load_image(img_path)
+    img_rotated = rotate_image(img, 30)
+    img_resized = resize_image(img, img.shape[1]//2, img.shape[0]//2)
+
+    # Harris
+    harris_rot = harris_corners(img_rotated)
+    harris_res = harris_corners(resize_image(img_resized, img.shape[1], img.shape[0]))
+
+    # SIFT and ORB
+    kp_rot_sift, des_rot_sift = compute_features(img_rotated, 'SIFT')
+    kp_res_sift, des_res_sift = compute_features(resize_image(img_resized, img.shape[1], img.shape[0]), 'SIFT')
+
+    kp_rot_orb, des_rot_orb = compute_features(img_rotated, 'ORB')
+    kp_res_orb, des_res_orb = compute_features(resize_image(img_resized, img.shape[1], img.shape[0]), 'ORB')
+
+    # Matching
+    matches_sift = bf_match(des_rot_sift, des_res_sift, 'SIFT')
+    matches_orb = bf_match(des_rot_orb, des_res_orb, 'ORB')
+
+    flann_sift = flann_match(des_rot_sift, des_res_sift, 'SIFT')
+    flann_orb = flann_match(des_rot_orb, des_res_orb, 'ORB')
+
+    # Draw matches
+    img_matches_sift = draw_matches(img_rotated, kp_rot_sift, resize_image(img_resized, img.shape[1], img.shape[0]), kp_res_sift, matches_sift)
+    img_matches_orb = draw_matches(img_rotated, kp_rot_orb, resize_image(img_resized, img.shape[1], img.shape[0]), kp_res_orb, matches_orb)
+    img_flann_sift = draw_matches(img_rotated, kp_rot_sift, resize_image(img_resized, img.shape[1], img.shape[0]), kp_res_sift, flann_sift)
+    img_flann_orb = draw_matches(img_rotated, kp_rot_orb, resize_image(img_resized, img.shape[1], img.shape[0]), kp_res_orb, flann_orb)
+
+    # Plot
+    plot_images(
+        [img_rotated, img_resized, harris_rot, harris_res, img_matches_sift, img_matches_orb, img_flann_sift, img_flann_orb],
+        ['Rotated', 'Resized', 'Harris Rotated', 'Harris Resized', 'SIFT BF', 'ORB BF', 'SIFT FLANN', 'ORB FLANN']
+    )
+
+if __name__ == "__main__":
+    main()
+
