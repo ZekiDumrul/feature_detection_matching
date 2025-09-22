@@ -3,14 +3,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Gorsel yukleme
-img_path = r'C:\Users\Zeki\Desktop\resim\monaLisa.webp'
+img_path = r'your_image'
 img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
 
 if img is None:
     print("Gorsel yuklenemedi! ")
     exit()
 
-#gorsel boyutlarý
+#gorsel boyutlarÃ½
 (h, w) = img.shape
 center = (w // 2, h // 2)
 
@@ -73,7 +73,7 @@ for m,n in matches_flann_sift:
         good_matches_sift.append(m)
 img_flann_sift = cv2.drawMatches(img_rotated, kp1, cv2.resize(img_resized, (w, h)), kp2, good_matches_sift[:20], None, flags=2)
 
-# ORB (binary descriptors için LSH)
+# ORB (binary descriptors iÃ§in LSH)
 FLANN_INDEX_LSH = 6
 index_params_orb = dict(algorithm = FLANN_INDEX_LSH,
                         table_number = 6,
