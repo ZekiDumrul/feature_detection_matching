@@ -88,7 +88,7 @@ def plot_images(images, titles, figsize=(18,12), cmap='gray'):
 
 
 def main():
-    img_path = r'C:\Users\Zeki\Desktop\resim\monaLisa.webp'
+    img_path = r'your_image'
     
     img = load_image(img_path)
     img_rotated = rotate_image(img, 30)
